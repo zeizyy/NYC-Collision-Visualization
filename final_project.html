@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html>
+  <head>
+      <meta charset="utf-8">
+        <title>NYC Collision</title>
+        <style>
+            path {
+                stroke: white;
+                stroke-width: 0.5px;
+                fill: beige;
+            }
+
+            #slider {
+                width: 900px;
+            }
+            
+            #play-button {
+                opacity: 0;
+            }
+            
+            .d3-tip {
+              line-height: 1;
+              font-weight: bold;
+              padding: 12px;
+              background: rgba(0, 0, 0, 0.8);
+              color: #fff;
+              border-radius: 2px;
+            }
+
+            .d3-tip:after {
+              box-sizing: border-box;
+              display: inline;
+              font-size: 10px;
+              width: 100%;
+              line-height: 1;
+              color: rgba(0, 0, 0, 0.8);
+              content: "\25BC";
+              position: absolute;
+              text-align: center;
+            }
+
+            .d3-tip.n:after {
+              margin: -1px 0 0 0;
+              top: 100%;
+              left: 0;
+            }
+            
+            #bar {
+                position: absolute;
+                z-index: 0;
+                top: 80px;
+                left: 10px;
+                pointer-events: all;
+            }
+/*
+            #map {
+                pointer-events: all;
+                z-index: -1;
+            }
+*/
+            .line path,
+            .line line {
+                fill: none;
+                stroke: #7A9E9F;
+                stroke-width: 2;
+                stroke-linejoin: round;
+                stroke-linecap: round;
+                opacity: 0.1;
+            }
+            
+            #map path {
+                stroke: #7A9E9F;
+            }
+            
+/*
+            body {
+                border-style: dotted;
+                border-width: 1px;
+            }
+*/
+            
+        </style>
+        <script src="http://d3js.org/d3.v3.min.js"></script>
+        <script src="http://d3js.org/topojson.v0.min.js"></script>
+<!--
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+        <script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+-->
+        <script src="http://labratrevenge.com/d3-tip/javascripts/d3.tip.v0.6.3.js"></script>
+        
+  
+        <script type="text/javascript">
+            var projection = d3.geo.mercator()
+  					.center([-73.94, 40.75])
+  					.scale(60000)
+            var path = d3.geo.path().projection(projection);
+            
+            
+            
+            var tip_map = d3.tip()
+              .attr('class', 'd3-tip')
+              .offset([-10, 0])
+              .html(function(d) {
+                return d.tip_key +", " + d.accidents;
+            });
+            
+            var tip_bar = tip_map;
+            
+            function drawMap() {
+                var g = d3.select("#map").append("g");
+
+                d3.json("data/nyc-zip-aug.json", function(error, topology) {
+                    g.selectAll("path")
+                        .data(topojson.object(topology, topology.objects.nyc_zip).geometries)
+                    .enter()
+                        .append("path")
+                        .attr("d", path)
+                        .attr("id", function(d) {
+                            return 'p' + d.properties.postalCode;
+                        })
+                        .on('mouseover', tip_map.show)
+                        .on('mouseout', tip_map.hide);
+                });
+            }
+
+            function date2string(date) {
+                return ('0' + (date.getMonth() + 1)).slice(-2) + '/' +
+                        ('0' + date.getDate()).slice(-2) + '/' + 
+                        date.getFullYear();;
+            }
+            
+            function hash_date_time(str) {
+                return str.slice(0, 2) + str.slice(3, 5);
+            }
+            
+            function int2time(i) {
+                return ('0' + i).slice(-2) + ":00";
+            }
+
+            function range2datestr(range) {
+                return date2string(new Date(date_scale(range)));
+
+            }
+            
+        
+
+            d3.json("data/nyc_collision_date.json", function(d_date) {
+                d3.json("data/nyc_collision_time.json", function(d_time) {
+                    d3.json("data/nyc_holiday.json", function(d_holiday) {
+                        d3.json("data/weather.json", function(d_weather) {
+                           var cur_mode = "day";
+                            var top_10 = false;
+                            var show_bar = true;
+                            var min_date_int = 0,
+                                max_date_int = 365;
+                            var min_date = new Date(2016,0,1),
+                                max_date = new Date(2016,11, 31);
+                            var date_scale = d3.scale.linear().domain([min_date_int, max_date_int]).range([min_date, max_date]);
+
+                            function max_min_count(d) {
+                                var max_count = d3.max(d3.values(d), function(zip_dict) { 
+                                    return d3.max(d3.values(zip_dict))
+                                });
+                                var min_count = d3.min(d3.values(d), function(zip_dict) { 
+                                    return d3.min(d3.values(zip_dict))
+                                });
+                                return [max_count, min_count];
+                            }
+
+                            var max_min_date = max_min_count(d_date);
+                            var max_date_count = max_min_date[0],
+                                min_date_count = max_min_date[1];
+
+                            var max_min_time = max_min_count(d_time);
+                            var max_time_count = max_min_time[0],
+                                min_time_count = max_min_time[1];
+                            var interval;
+                            var slider = d3.select("#slider");
+                            var play_button = d3.select("#play-button");
+                            var pause_button = d3.select("#pause-button");
+                            var top_ten = d3.select("#top-10");
+
+                            function compute_bar_data(bar_data){
+                                return Object.keys(bar_data).sort().map(function(t) {
+                                    var s_data = Object.keys(bar_data[t]).map(function (z) {
+                                        return bar_data[t][z];
+                                    }).reduce(function(a, b) {return a + b;}, 0);
+                                    return {"tip_key": t, "time":t, "accidents":s_data};
+                                });
+                            }
+
+                            var bar_time = compute_bar_data(d_time);
+                            var bar_date = compute_bar_data(d_date);
+
+                            var date_time2int = d3.scale.linear().range([min_date]);
+                            
+                            var radius = 7;
+
+                            function draw_bar_chart(bar_data) {
+                                var chart = d3.select("#bar");
+
+                                var width = 900,
+                                    height = 650;
+                                var x = d3.scale.ordinal().rangeBands([0, width], .2);
+                                var y = d3.scale.linear().range([height, 0]);
+                                var line = d3.svg.line()
+                                    .x(function(d) { return x(d.time); })
+                                    .y(function(d) { return y(d.accidents); })
+                                var data = bar_data;
+                                var barWidth = width / data.length;
+                                x.domain(data.map(function(d) {  return d.time; }));
+                                y.domain([0, d3.max(data, function(d) { return d.accidents; })]);
+
+                                var bar_line = chart.append("g")
+                                    .attr("transform", "translate(" + radius + "," + radius + ")")
+                                    .attr("class", "line");
+
+                                bar_line.append("path")
+                                    .attr("class", "line")
+                                    .attr("d", line(bar_data));
+
+                                var bar = chart.append("g").selectAll("g") 
+                                  .data(data)
+                                .enter().append("g")
+                                  .attr("transform", function(d, i) { return "translate(" + (x(d.time) + radius) + "," + radius + ")"; });
+                                
+                                bar.append("circle")
+                                  .attr("cy", function(d) { return y(d.accidents) ; })
+                                  .attr("r", radius)
+                                  .attr("class", "bar_c")
+                                  .attr("str", function(d) { return d.time; })
+                                  .attr("position", function(d, i) { return i; })
+                                  .attr("id", function(d) { return "b" + hash_date_time(d.time); })
+                                  .style("opacity", function(d) {
+                                    if (d.time[2] === "/" && !(d.time in d_holiday) && !(d.time in d_weather)) {
+                                        return 0;
+                                    } else {
+                                        return 0.15;
+                                    }
+                                  })
+                                  .attr("fill", function (d) {
+                                    if (d.time in d_holiday && d.time in d_weather) {
+                                        return "#FED766";
+                                    } else if (d.time in d_holiday) {
+                                        return "#C22939";
+                                    } else if (d.time in d_weather) {
+                                        return "#3A65AF";
+                                    }
+                                  })
+                                  .on('mouseover', tip_bar.show)
+                                  .on('mouseout', tip_bar.hide)
+                                  .on('click', function() {
+                                    var i = d3.select(this).attr("str");
+                                    var pos = d3.select(this).attr("position");
+                                    var s;
+                                    if(bar_data.length > 24) {
+                                        draw_map(d_date, i);
+                                    } else {
+                                        s = int2time(i);
+                                        draw_map(d_time, i);
+                                    }
+                                    slider.property("value", +pos);
+                                  });
+                                console.log(Object.keys(d_date).length)
+                                
+
+
+
+
+        //                        bar.append("text")
+        //                          .attr("x", x.rangeBand() / 2)
+        //                          .attr("y", function(d) { return y(d.accidents) + 603; })
+        //                          .attr("dy", ".75em")
+        //                          .text(function(d) { return d.time; });              
+                            }
+
+                            function draw_map(d, str) {
+                                var dict = d[str];
+
+    //                            console.log(d3.select("#p11370").data()[0]);
+
+                                d3.selectAll("#bar g").remove();
+                                if(cur_mode == "day") {
+                                    var max_count = max_time_count,
+                                        min_count = min_time_count;
+                                        if (show_bar) draw_bar_chart(bar_time);
+                                } else if (cur_mode == "year") {
+                                    var max_count = max_date_count,
+                                        min_count = min_date_count;
+                                        if (show_bar) draw_bar_chart(bar_date);
+                                }
+                                var color_scale = d3.scale.linear().domain([min_count, max_count]).range(['beige', 'red']);
+
+                                if(!top_10) {
+                                    for (key in dict) {
+                                        if (dict.hasOwnProperty(key)) {
+                                            var old_data = d3.select("#p"+key).data()[0];
+                                            if (old_data === undefined) continue
+                                            old_data['accidents'] = dict[key];
+                                            old_data['tip_key'] = key;
+                                            d3.select("#p"+key).transition().style("fill", color_scale(dict[key]));
+                                        }
+                                    }
+                                } else {
+                                    var top_10_zip = Object.keys(dict).map(function(z) { return [z, dict[z]]}).sort(function(tup1, tup2) { return tup2[1] - tup1[1]; }).slice(0, 20).map(function(tup) { return tup[0]; });
+                                    for (key in dict) {
+                                        if (dict.hasOwnProperty(key) && top_10_zip.includes(key)) {
+                                            var old_data = d3.select("#p"+key).data()[0];
+                                            if (old_data === undefined) continue
+                                            old_data['accidents'] = dict[key];
+                                            old_data['tip_key'] = key;
+                                            d3.select("#p"+key).transition().style("fill", color_scale(dict[key]));
+                                        } else {
+                                            d3.select("#p"+key).transition().style("fill", "white");
+                                        }
+                                    }
+                                }
+
+
+                                d3.select("path").call(tip_map);
+                                var title_str = str;
+                                if (str in d_holiday || str in d_weather) {
+                                    title_str += ": "
+                                }
+                                if (str in d_holiday) {
+                                    title_str += d_holiday[str].join(", ") + '. ';
+                                } 
+                                if (str in d_weather) {
+                                    title_str += d_weather[str] + " inches of snow."
+                                }
+                                
+                                d3.select("#time_text").html(title_str);
+
+                                d3.select("#b" + hash_date_time(str))
+                                    .style("opacity", 0.5)
+                                    .style("fill", "#4F6367")
+                                    .attr("r", 20)
+                                    .attr("width", 20);
+
+                                top_ten.on('click', function() {
+                                   top_10 = !top_10;
+                                   var button_text = "";
+                                   if (!top_10) {
+                                       button_text = "Only Top 20";
+                                   } else {
+                                       button_text = "Show All"
+                                   }
+                                   top_ten.text(button_text);
+                                   draw_map(d, str);
+                                });
+
+                                var toggle_bar = d3.select("#toggle_bar");
+                                toggle_bar
+                                    .on("click", function() {
+                                        show_bar = !show_bar;
+                                        if (show_bar) {
+                                            toggle_bar.text("Hide Line Chart");
+                                        } else {
+                                            toggle_bar.text("Show Line Chart");
+                                        }
+                                        draw_map(d, str);
+                                    })
+                            }
+
+                            function init_date() {
+                                clearInterval(interval);
+                                reset_play();
+                                reset_slider();
+                                var date_str = date2string(new Date(date_scale(min_date_int)));
+                                draw_map(d_date, date_str);
+                                d3.select("#slider")
+                                    .on("change", function() {
+                                        var date_str = date2string(new Date(date_scale(this.value)));
+                                        draw_map(d_date, date_str);
+                                });
+
+                                play_button
+                                    .on("click", function() {
+                                        interval = setInterval(single_step_date, 500);
+                                        toggle_play_pause();
+                                    })
+
+                                pause_button
+                                    .on("click", function() {
+                                        clearInterval(interval);
+                                        toggle_play_pause();
+                                })
+
+                                slider
+                                    .attr("max", max_date_int)
+                                    .attr("min", min_date_int);
+                            }
+
+                            function init_time() {
+                                clearInterval(interval);
+                                reset_play();
+                                reset_slider();
+                                var time_str = int2time(0);
+                                draw_map(d_time, time_str);
+                                slider
+                                    .on("change", function() {
+                                        var time_str = int2time(this.value);
+                                        draw_map(d_time, time_str);
+                                });
+
+                                play_button
+                                    .on("click", function() {
+                                        interval = setInterval(single_step_time, 500);
+                                        toggle_play_pause();
+                                    })
+
+                                pause_button
+                                    .on("click", function() {
+                                        clearInterval(interval);
+                                        toggle_play_pause();
+                                })
+
+                                slider
+                                    .attr("max", 23)
+                                    .attr("min", 0);
+                            }
+
+                            function single_step_date() {
+                                var new_val = +slider.property("value") + 1;
+                                if (new_val > max_date_int) {
+                                    init_date();
+                                    return
+                                }
+                                slider.property("value", new_val);
+                                var date_str = date2string(new Date(date_scale(new_val)));
+                                draw_map(d_date, date_str);
+                            }
+
+                            function single_step_time() {
+                                var new_val = +slider.property("value") + 1;
+                                if (new_val > 23) {
+                                    init_time();
+                                    return;
+                                }
+                                slider.property("value", new_val);
+                                var time_str = time_str = int2time(new_val);
+                                draw_map(d_time, time_str);
+                            }
+
+                            function reset_slider() {
+                                slider.property("value", 0);
+                                clearInterval(interval);
+                            }
+
+                            function toggle_play_pause() {
+                                var n_play_opacity = 1 - play_button.style("opacity");
+                                if (n_play_opacity === 0) {
+                                    play_button.attr('disabled', 'true');
+                                } else {
+                                    play_button.attr('disabled', null);
+                                }
+                                play_button.style("opacity", n_play_opacity);
+
+                                var n_pause_opacity = 1 - pause_button.style("opacity");
+                                if (n_pause_opacity === 0) {
+                                    pause_button.attr('disabled', 'true');
+                                } else {
+                                    pause_button.attr('disabled', null);
+                                }
+                                pause_button.style("opacity", n_pause_opacity);
+                            }
+
+                            function reset_play() {
+                                play_button.style("opacity", 1);
+                                pause_button.style("opacity", 0);
+                            }
+
+                            init_time();
+
+                            var toggle_button = d3.select("#toggle");
+                            var legend = d3.select("#legend");
+                            toggle_button
+                                .on("click", function (){
+                                    reset_slider();
+                                    if(cur_mode === "year") {
+                                        cur_mode = "day";
+                                        toggle_button.text("Year View")
+                                        init_time();
+                                        legend.style("opacity", 0);
+                                    } else if (cur_mode === "day") {
+                                        cur_mode = "year";
+                                        toggle_button.text("Day View")
+                                        init_date();
+                                        legend.style("opacity", 1);
+                                    } 
+                            }); 
+                        });
+                    });
+                });
+            });
+            
+        </script>
+    
+    </head>
+    <body onload="drawMap()">
+        <h1 id="time_text"></h1>
+        <svg id="map" width="900" height="600"></svg>
+        <input id="slider" type="range" min=0 max=790 value=0 />
+        <svg id="bar" width="900" height="600"></svg>
+<!--        <svg width="900" height="800"></svg>-->
+        <div id="buttons">
+            <button id="play-button">play</button>
+            <button id="pause-button">pause</button>
+            <button id="toggle">Year View</button>
+            <button id="top-10">Only Top 20</button>
+            <button id="toggle_bar">Hide Line Chart</button>
+        </div> 
+        <div id="legend" style="opacity:0;">
+            <i>* red: holiday; blue: snow; yellow; both;</i>
+        </div>
+        
+    </body>
+</html>
